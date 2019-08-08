@@ -3,14 +3,13 @@
 /******************************************************/
 
 #include "application.h"
-#line 1 "z:/jamis/Development/Circuits_MPUs/radio/LoRa-stuff/radiohead-argon-test/src/radiohead-argon-test.ino"
+#line 1 "/home/jamis/my_root/dev/for_fun/radio/LoRa-tests/particle-argon-test/src/radiohead-argon-test.ino"
 /*
  * Project radiohead-argon-test
  * Description:
  * Author:
  * Date:
  */
-
 
 #include <SPI.h> // needed for radio frequency module
 #include <RH_RF95.h> // Radio include for all lora feather9x_RX
@@ -20,13 +19,16 @@
 void displayRunning();
 void setup();
 void loop();
-#line 14 "z:/jamis/Development/Circuits_MPUs/radio/LoRa-stuff/radiohead-argon-test/src/radiohead-argon-test.ino"
+#line 13 "/home/jamis/my_root/dev/for_fun/radio/LoRa-tests/particle-argon-test/src/radiohead-argon-test.ino"
+SYSTEM_THREAD(ENABLED);
+
 #define LEDPIN D7
 
 // For LoRa Featherwing on Particle board:
 #define RFM95_RST     D6   // "A" wired to "RST"
 #define RFM95_CS      D5   // "B" wired to "CS"
-#define RFM95_INT     D4   // "C" wired to "IRQ"
+//#define RFM95_INT     D4   // "C" wired to "IRQ" THIS COLLIDES WITH OLED SCREEN BUTTONS
+#define RFM95_INT     A5   // "F" wired to "IRQ"
 
 // Change to 434.0 or other frequency, must match RX's freq!
 #define RF95_FREQ 433.0
@@ -38,6 +40,9 @@ OledWingAdafruit display;
 
 int16_t packetnum = 0;  // packet counter, we increment per xmission
 int16_t responseCount = 0;
+
+bool rfmState = true;
+bool rfmFreqSet = true;
 
 void displayRunning() {
   display.clearDisplay();
@@ -87,79 +92,88 @@ void setup() {
     display.setCursor(0,0);
     display.println("LoRa radio init failed!");
     display.display(); // actually display all of the above
-    while (1);
+    rfmState = false;
   }
-  Serial.println("LoRa radio init OK!");
-  display.clearDisplay();
-  display.setCursor(0,0);
-  display.println("LoRa radio init OK!");
-  display.display(); // actually display all of the above
 
-  // Defaults after init are 434.0MHz, modulation GFSK_Rb250Fd250, +13dbM
-  if (!rf95.setFrequency(RF95_FREQ)) {
-    Serial.println("setFrequency failed");
+  if (rfmState) {
+    Serial.println("LoRa radio init OK!");
     display.clearDisplay();
     display.setCursor(0,0);
-    display.println("setFrequency failed");
+    display.println("LoRa radio init OK!");
     display.display(); // actually display all of the above
-    while (1);
-  }
-  Serial.print("Freq set to: ");
-  Serial.println(RF95_FREQ);
-  
-  // Defaults after init are 434.0MHz, 13dBm, Bw = 125 kHz, Cr = 4/5, Sf = 128chips/symbol, CRC on
 
-  // The default transmitter power is 13dBm, using PA_BOOST.
-  // If you are using RFM95/96/97/98 modules which uses the PA_BOOST transmitter pin, then
-  // you can set transmitter powers from 5 to 23 dBm:
-  rf95.setTxPower(5, false);
-  Serial.println("LoRa Ready!");
+    // Defaults after init are 434.0MHz, modulation GFSK_Rb250Fd250, +13dbM
+    if (!rf95.setFrequency(RF95_FREQ)) {
+      Serial.println("setFrequency failed");
+      display.clearDisplay();
+      display.setCursor(0,0);
+      display.println("setFrequency failed");
+      display.display(); // actually display all of the above
+      rfmFreqSet = false;
+    }
+
+    if (rfmFreqSet) {
+      Serial.print("Freq set to: ");
+      Serial.println(RF95_FREQ);
+      
+      // Defaults after init are 434.0MHz, 13dBm, Bw = 125 kHz, Cr = 4/5, Sf = 128chips/symbol, CRC on
+
+      // The default transmitter power is 13dBm, using PA_BOOST.
+      // If you are using RFM95/96/97/98 modules which uses the PA_BOOST transmitter pin, then
+      // you can set transmitter powers from 5 to 23 dBm:
+      rf95.setTxPower(23, false);
+      Serial.println("LoRa Ready!");
+    }
+  }
+  
 }
 
 
 void loop() {
-  Serial.println("Sending to rf95_server");
+  if (rfmState && rfmFreqSet) {
+    Serial.println("Sending to rf95_server");
 
-  // Send a message to rf95_server
-  char radiopacket[20] = "KM6IDA request ##";
-  itoa(packetnum++, radiopacket+15, 10);
-  Serial.print("Sending "); Serial.println(radiopacket);
-  radiopacket[19] = 0;
+    // Send a message to rf95_server
+    char radiopacket[20] = "KM6IDA request ##";
+    itoa(packetnum++, radiopacket+15, 10);
+    Serial.print("Sending "); Serial.println(radiopacket);
+    radiopacket[19] = 0;
 
-  Serial.println("Sending..."); delay(10);
-  rf95.send((uint8_t *)radiopacket, 20);
+    Serial.println("Sending..."); delay(10);
+    rf95.send((uint8_t *)radiopacket, 20);
 
-  Serial.println("Waiting for packet to complete..."); delay(10);
-  rf95.waitPacketSent();
+    Serial.println("Waiting for packet to complete..."); delay(10);
+    rf95.waitPacketSent();
 
-  // Now wait for a reply
-  uint8_t buf[RH_RF95_MAX_MESSAGE_LEN];
-  uint8_t len = sizeof(buf);
+    // Now wait for a reply
+    uint8_t buf[RH_RF95_MAX_MESSAGE_LEN];
+    uint8_t len = sizeof(buf);
 
-  Serial.println("Waiting for reply..."); delay(10);
-  if (rf95.waitAvailableTimeout(100)) {
-    // Should be a reply message for us now
-    if (rf95.recv(buf, &len)) {
-      Serial.print("Got reply: ");
-      Serial.println((char*)buf);
-      Serial.print("RSSI: ");
-      Serial.println(rf95.lastRssi(), DEC);
-      responseCount++;
+    Serial.println("Waiting for reply..."); delay(10);
+    if (rf95.waitAvailableTimeout(100)) {
+      // Should be a reply message for us now
+      if (rf95.recv(buf, &len)) {
+        Serial.print("Got reply: ");
+        Serial.println((char*)buf);
+        Serial.print("RSSI: ");
+        Serial.println(rf95.lastRssi(), DEC);
+        responseCount++;
+      } else {
+        Serial.println("Receive failed");
+      }
     } else {
-      Serial.println("Receive failed");
+      Serial.println("No reply, is there a listener around?");
     }
-  } else {
-    Serial.println("No reply, is there a listener around?");
+
+    // Show recent status:
+    displayRunning();
+
+    digitalWrite(LEDPIN, HIGH);
+    delay(100);
+    digitalWrite(LEDPIN, LOW);
+    delay(100);
+
+    yield();
   }
-
-  // Show recent status:
-  displayRunning();
-
-  digitalWrite(LEDPIN, HIGH);
-  delay(100);
-  digitalWrite(LEDPIN, LOW);
-  delay(100);
-
-  yield();
 }
 
